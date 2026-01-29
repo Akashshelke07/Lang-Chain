@@ -1,9 +1,10 @@
+# backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1.chat import router as chat_router
 
-app = FastAPI(title="Restaurant Branding Assistant API")
+app = FastAPI(title="AI Assistant API")
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,8 +1,8 @@
 // src/App.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import Sidebar from './components/Sidebar';
+import ChatArea from './components/ChatArea';
 import './App.css';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1/chat';
@@ -11,13 +11,25 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [chatHistory, setChatHistory] = useState([]);
+  const [currentChatId, setCurrentChatId] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Use a fixed or dynamic session ID (you can generate UUID later)
-  const sessionId = localStorage.getItem('sessionId') || 'akash-default';
-  if (!localStorage.getItem('sessionId')) {
-    localStorage.setItem('sessionId', sessionId);
-  }
+  // Load chat history from localStorage on mount
+  useEffect(() => {
+    const savedHistory = localStorage.getItem('chatHistory');
+    if (savedHistory) {
+      setChatHistory(JSON.parse(savedHistory));
+    }
+  }, []);
+
+  // Save chat history to localStorage whenever it changes
+  useEffect(() => {
+    if (chatHistory.length > 0) {
+      localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+    }
+  }, [chatHistory]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -28,11 +40,14 @@ function App() {
     if (!input.trim()) return;
 
     const userMessage = { role: 'user', content: input };
-    setMessages(prev => [...prev, userMessage]);
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
     setInput('');
     setIsLoading(true);
 
     try {
+      const sessionId = currentChatId || `chat-${Date.now()}`;
+      
       const response = await axios.post(API_URL, {
         message: input,
         session_id: sessionId,
@@ -42,7 +57,29 @@ function App() {
         role: 'assistant',
         content: response.data.response
       };
-      setMessages(prev => [...prev, assistantMessage]);
+      
+      const updatedMessages = [...newMessages, assistantMessage];
+      setMessages(updatedMessages);
+
+      // Update or create chat in history
+      if (!currentChatId) {
+        const newChat = {
+          id: sessionId,
+          title: input.slice(0, 50) + (input.length > 50 ? '...' : ''),
+          messages: updatedMessages,
+          timestamp: new Date().toISOString()
+        };
+        setChatHistory(prev => [newChat, ...prev]);
+        setCurrentChatId(sessionId);
+      } else {
+        setChatHistory(prev => 
+          prev.map(chat => 
+            chat.id === currentChatId 
+              ? { ...chat, messages: updatedMessages }
+              : chat
+          )
+        );
+      }
     } catch (error) {
       console.error('Backend error:', error);
       setMessages(prev => [...prev, {
@@ -54,44 +91,59 @@ function App() {
     }
   };
 
-  const clearChat = () => {
+  const startNewChat = () => {
     setMessages([]);
-    // Optionally create new sessionId here if you want to reset memory
+    setCurrentChatId(null);
+  };
+
+  const loadChat = (chatId) => {
+    const chat = chatHistory.find(c => c.id === chatId);
+    if (chat) {
+      setMessages(chat.messages);
+      setCurrentChatId(chatId);
+    }
+  };
+
+  const deleteChat = (chatId) => {
+    setChatHistory(prev => prev.filter(chat => chat.id !== chatId));
+    if (currentChatId === chatId) {
+      startNewChat();
+    }
+  };
+
+  const clearAllHistory = () => {
+    setChatHistory([]);
+    localStorage.removeItem('chatHistory');
+    startNewChat();
+  };
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
   };
 
   return (
-    <div className="chat-container">
-      <div className="chat-header">
-        Restaurant Branding Assistant 🍽️
-        <button onClick={clearChat} className="clear-btn">Clear Chat</button>
-      </div>
-
-      <div className="messages">
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            className={`message ${msg.role === 'user' ? 'user-message' : 'assistant-message'}`}
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-          </div>
-        ))}
-
-        {isLoading && <div className="message assistant-message">Thinking about your restaurant concept...</div>}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      <form onSubmit={handleSubmit} className="input-form">
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          placeholder="e.g., Suggest upscale names for Maharashtrian fine-dining in Pune"
-          disabled={isLoading}
-        />
-        <button type="submit" disabled={isLoading}>
-          Send
-        </button>
-      </form>
+    <div className="app">
+      <Sidebar
+        isOpen={isSidebarOpen}
+        chatHistory={chatHistory}
+        currentChatId={currentChatId}
+        onNewChat={startNewChat}
+        onLoadChat={loadChat}
+        onDeleteChat={deleteChat}
+        onClearAll={clearAllHistory}
+        onToggleSidebar={toggleSidebar}
+      />
+      
+      <ChatArea
+        messages={messages}
+        input={input}
+        setInput={setInput}
+        isLoading={isLoading}
+        isSidebarOpen={isSidebarOpen}
+        messagesEndRef={messagesEndRef}
+        onSubmit={handleSubmit}
+        onToggleSidebar={toggleSidebar}
+      />
     </div>
   );
 }
